@@ -15,20 +15,34 @@ function ensureUser(username, email, role, password) {
   return info.lastInsertRowid;
 }
 
+function mp4Duration(file) {
+  try {
+    const b = fs.readFileSync(file);
+    const i = b.indexOf(Buffer.from('mvhd'));
+    if (i < 8) return null;
+    const ver = b[i + 8];
+    const ts = ver === 1 ? b.readUInt32BE(i + 20) : b.readUInt32BE(i + 12);
+    const dur = ver === 1 ? Number(b.readBigUInt64BE(i + 24)) : b.readUInt32BE(i + 16);
+    if (!ts || !dur) return null;
+    return Math.round(dur / ts);
+  } catch {
+    return null;
+  }
+}
+
 function probeDuration(file) {
   try {
     const out = execFileSync(FFMPEG.replace('ffmpeg', 'ffprobe'), ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { encoding: 'utf8' });
     const d = Math.round(Number(out.trim()));
-    return Number.isFinite(d) ? d : null;
+    if (Number.isFinite(d) && d > 0) return d;
   } catch {
     try {
       const out = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { encoding: 'utf8' });
       const d = Math.round(Number(out.trim()));
-      return Number.isFinite(d) ? d : null;
-    } catch {
-      return null;
-    }
+      if (Number.isFinite(d) && d > 0) return d;
+    } catch { }
   }
+  return mp4Duration(file);
 }
 
 function makeThumb(videoFile, name) {

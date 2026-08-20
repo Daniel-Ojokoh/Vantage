@@ -1,24 +1,28 @@
 # Vantage deploy — run from the Windows machine that holds D:\vantage and D:\stock-videos.
-# Usage: .\deploy.ps1 -Host "1.2.3.4" -Key "C:\path\to\key.pem"
+# Usage: .\deploy.ps1 -HostName "1.2.3.4" -Key "C:\path\to\key.pem"
 # Requires: ssh/scp available (OpenSSH). Node >= 22.5 on the VM.
 
 param(
-  [Parameter(Mandatory = $true)][string]$Host,
+  [Parameter(Mandatory = $true)][string]$HostName,
   [Parameter(Mandatory = $true)][string]$Key,
   [string]$User = "azureuser",
   [int]$Port = 8080
 )
 
 $ErrorActionPreference = "Stop"
-$remote = "$User@$Host"
+$remote = "$User@$HostName"
 $ssh = "ssh -i `"$Key`" -o StrictHostKeyChecking=no -o ConnectTimeout=15 $remote"
 $scp = "scp -i `"$Key`" -o StrictHostKeyChecking=no"
 
-function Invoke-Remote($cmd) { Invoke-Expression "$ssh `"$cmd`"" }
-function Invoke-Scp($src, $dst) { Invoke-Expression "$scp `"$src`" `"$remote`:$dst`"" }
+function Invoke-Remote([string]$cmd) {
+  & ssh -i $Key -o StrictHostKeyChecking=no -o ConnectTimeout=15 "$User@$HostName" $cmd
+}
+function Invoke-Scp($src, $dst) {
+  & scp -i $Key -o StrictHostKeyChecking=no "$src" "$User@$HostName`:$dst"
+}
 
 Write-Host "==> Node version check"
-Invoke-Remote "node --version; node -e `"require('node:sqlite');console.log('sqlite-ok')`"" | Out-Host
+Invoke-Remote "node --version; node -e `"try{require('node:sqlite');console.log('sqlite-ok')}catch(e){console.log('NO-SQLITE:'+e.message);process.exit(1)}`"" | Out-Host
 
 Write-Host "==> Preparing remote dir"
 Invoke-Remote "mkdir -p /home/$User/vantage/public /home/$User/stock-videos"
@@ -58,4 +62,4 @@ Write-Host "==> Port check (public IP)"
 $pub = Invoke-Remote "curl -s -H 'Host: health' http://127.0.0.1:$Port/api/health"
 if ($pub -match 'vantage') { Write-Host "    local OK" }
 
-Write-Host "Done. Suite: cd D:\streamforge; VB=http://$Host`:$Port node vantage-agg.cjs"
+Write-Host "Done. Suite: cd D:\streamforge; VB=http://$HostName`:$Port node vantage-agg.cjs"

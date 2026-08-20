@@ -6,10 +6,12 @@ After=network.target
 Type=simple
 User=azureuser
 WorkingDirectory=/home/azureuser/vantage
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/local/bin/node server.js
 Environment=NODE_ENV=production
-Environment=PORT=8080
+Environment=PORT=80
 Environment=VANTAGE_DATA=/home/azureuser/vantage/data
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 Restart=always
 RestartSec=3
 
