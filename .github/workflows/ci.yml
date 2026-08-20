@@ -70,7 +70,7 @@ jobs:
           if-no-files-found: ignore
 
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.REGISTRY != '' && secrets.AZURE_CREDENTIALS != ''
     needs: test
     runs-on: ubuntu-latest
     steps:
