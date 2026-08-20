@@ -1,0 +1,17 @@
+[Unit]
+Description=Vantage video platform (zero-dependency node:sqlite)
+After=network.target
+
+[Service]
+Type=simple
+User=azureuser
+WorkingDirectory=/home/azureuser/vantage
+ExecStart=/usr/bin/node server.js
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=VANTAGE_DATA=/home/azureuser/vantage/data
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

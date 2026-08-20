@@ -1,0 +1,11 @@
+.git
+.gitignore
+data
+.agg-data
+.smoke-data
+node_modules
+*.log
+deploy
+.github
+tests
+README.md

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1410">
+  <meta name="description" content="Vantage — every frame counts. Watch, rate, playlist, resume.">
+  <title>Vantage · Every frame counts.</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1410'/%3E%3Cpath d='M14 46 L28 18 L36 36 L42 26 L52 46 Z' fill='%23c9f73c'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=1">
+</head>
+<body>
+  <div id="app">
+
+    <header class="topbar">
+      <div class="brand" data-nav="feed">
+        <span class="mark">▲</span>VANTAGE
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="userbox" id="userbox"></div>
+    </header>
+
+    <main id="main">
+      <div id="view" class="view"></div>
+    </main>
+
+    <nav class="bottom-nav" id="bottomNav">
+      <a data-nav="feed" href="#/feed"><span class="bn-ic">▶</span><span>Feed</span></a>
+      <a data-nav="explore" href="#/explore"><span class="bn-ic">◎</span><span>Explore</span></a>
+      <a data-nav="playlists" href="#/playlists"><span class="bn-ic">▤</span><span>Lists</span></a>
+      <a data-nav="account" href="#/account"><span class="bn-ic">◉</span><span>Me</span></a>
+    </nav>
+
+    <div id="toast" class="toast"></div>
+
+    <div id="authModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="authClose">×</button>
+        <h2 class="modal-title" id="authTitle">Sign in to Vantage</h2>
+        <div class="tabs">
+          <button class="tab on" data-tab="login">Sign in</button>
+          <button class="tab" data-tab="register">Create account</button>
+        </div>
+        <form id="authForm">
+          <label>Username <input id="authUsername" name="username" required maxlength="40" autocomplete="username"></label>
+          <label id="authEmailWrap" class="hidden">Email <input id="authEmail" name="email" type="email" autocomplete="email"></label>
+          <label>Password <input id="authPassword" name="password" type="password" minlength="6" required autocomplete="current-password"></label>
+          <button class="primary" id="authSubmit" type="submit">Sign in</button>
+        </form>
+        <p class="hint" id="authHint">Creator accounts are provisioned by an administrator.</p>
+      </div>
+    </div>
+
+    <div id="sheetBackdrop" class="sheet-backdrop hidden">
+      <div class="sheet">
+        <div class="sheet-head">
+          <h3>Comments <span class="sheet-count" id="sheetCount">0</span></h3>
+          <button class="sheet-close" id="sheetClose">×</button>
+        </div>
+        <div class="sheet-body" id="sheetBodyWrap"></div>
+        <div class="sheet-foot" id="sheetFoot"></div>
+      </div>
+    </div>
+
+    <div id="plModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <button class="modal-close" id="plClose">×</button>
+        <h2 class="modal-title">Add to playlist</h2>
+        <div id="plList" class="pl-list"></div>
+        <div class="pl-new">
+          <input id="plName" maxlength="80" placeholder="New playlist name…">
+          <button class="primary" id="plCreate">Create & add</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <script src="/static/app.js?v=1"></script>
+</body>
+</html>

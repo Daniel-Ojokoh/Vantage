@@ -1,0 +1,16 @@
+{
+  "name": "vantage",
+  "version": "1.0.0",
+  "description": "Vantage — every frame counts. Zero-dependency Node video platform.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

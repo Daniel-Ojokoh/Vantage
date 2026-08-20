@@ -1,0 +1,115 @@
+name: build-test-deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ${{ vars.REGISTRY }}
+  REGISTRY_NAME: ${{ vars.REGISTRY_NAME }}
+  RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+  ACA_ENV: ${{ vars.CONTAINER_APP_ENV }}
+  ACA_APP: ${{ vars.CONTAINER_APP }}
+  LOCATION: ${{ vars.AZURE_LOCATION || 'westeurope' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t vantage:ci .
+
+      - name: Start container
+        run: docker run -d --name vtest -p 8181:8080 -e AUTO_SEED=1 vantage:ci
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8181/api/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8181/api/health | grep -q vantage
+
+      - name: API smoke inside container
+        run: docker exec vtest node smoke.js
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null
+          npm i -D playwright
+          npx playwright install --with-deps chromium
+
+      - name: Pull stock for upload test
+        run: docker cp vtest:/app/stock-videos ./stock-videos
+
+      - name: End-to-end suite against container
+        env:
+          VB: http://127.0.0.1:8181
+          STOCK_DIR: ${{ github.workspace }}/stock-videos
+          AGG_DATA: ${{ github.workspace }}/.agg-data
+        run: node tests/vantage-agg.cjs
+
+      - name: Archive suite artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            *.png
+            .agg-data
+          if-no-files-found: ignore
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Build and push image
+        run: |
+          az acr login --name "${{ env.REGISTRY_NAME }}"
+          docker build -t "${{ env.REGISTRY }}/vantage:latest" -t "${{ env.REGISTRY }}/vantage:${{ github.sha }}" .
+          docker push "${{ env.REGISTRY }}/vantage:latest"
+          docker push "${{ env.REGISTRY }}/vantage:${{ github.sha }}"
+
+      - name: Bootstrap Azure resources (idempotent)
+        run: |
+          az group create --name "${{ env.RG }}" --location "${{ env.LOCATION }}" -o none
+          az acr create --name "${{ env.REGISTRY_NAME }}" --resource-group "${{ env.RG }}" --sku Basic -o none || true
+          az containerapp env create --name "${{ env.ACA_ENV }}" --resource-group "${{ env.RG }}" --location "${{ env.LOCATION }}" -o none || true
+
+      - name: Deploy to Azure Container Apps
+        run: |
+          if az containerapp show --name "${{ env.ACA_APP }}" --resource-group "${{ env.RG }}" >/dev/null 2>&1; then
+            az containerapp update --name "${{ env.ACA_APP }}" --resource-group "${{ env.RG }}" \
+              --image "${{ env.REGISTRY }}/vantage:latest"
+          else
+            az containerapp create --name "${{ env.ACA_APP }}" --resource-group "${{ env.RG }}" \
+              --environment "${{ env.ACA_ENV }}" --image "${{ env.REGISTRY }}/vantage:latest" \
+              --target-port 8080 --ingress external --registry-server "${{ env.REGISTRY }}" \
+              --cpu 0.5 --memory 1.0Gi --min-replicas 1 --max-replicas 3
+          fi
+
+      - name: Verify deployment
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf https://${{ env.ACA_APP }}.${{ env.ACA_ENV }}.${{ env.LOCATION }}.azurecontainerapps.io/api/health >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -sf https://${{ env.ACA_APP }}.${{ env.ACA_ENV }}.${{ env.LOCATION }}.azurecontainerapps.io/api/health
+          echo "LIVE AT https://${{ env.ACA_APP }}.${{ env.ACA_ENV }}.${{ env.LOCATION }}.azurecontainerapps.io"
