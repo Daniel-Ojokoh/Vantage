@@ -8,11 +8,6 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ${{ vars.REGISTRY }}
-  REGISTRY_NAME: ${{ vars.REGISTRY_NAME }}
-  RG: ${{ vars.AZURE_RESOURCE_GROUP }}
-  ACA_ENV: ${{ vars.CONTAINER_APP_ENV }}
-  ACA_APP: ${{ vars.CONTAINER_APP }}
   LOCATION: ${{ vars.AZURE_LOCATION || 'westeurope' }}
 
 jobs:
@@ -70,46 +65,22 @@ jobs:
           if-no-files-found: ignore
 
   deploy:
-    if: github.ref == 'refs/heads/main' && vars.REGISTRY != '' && secrets.AZURE_CREDENTIALS != ''
+    if: github.ref == 'refs/heads/main' && vars.VM_DEPLOY == '1'
     needs: test
     runs-on: ubuntu-latest
+    env:
+      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_KEY: ${{ secrets.VM_KEY }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Build and push image
+      - name: Deploy to Azure VM
+        if: env.VM_HOST != '' && env.VM_KEY != ''
         run: |
-          az acr login --name "${{ env.REGISTRY_NAME }}"
-          docker build -t "${{ env.REGISTRY }}/vantage:latest" -t "${{ env.REGISTRY }}/vantage:${{ github.sha }}" .
-          docker push "${{ env.REGISTRY }}/vantage:latest"
-          docker push "${{ env.REGISTRY }}/vantage:${{ github.sha }}"
-
-      - name: Bootstrap Azure resources (idempotent)
-        run: |
-          az group create --name "${{ env.RG }}" --location "${{ env.LOCATION }}" -o none
-          az acr create --name "${{ env.REGISTRY_NAME }}" --resource-group "${{ env.RG }}" --sku Basic -o none || true
-          az containerapp env create --name "${{ env.ACA_ENV }}" --resource-group "${{ env.RG }}" --location "${{ env.LOCATION }}" -o none || true
-
-      - name: Deploy to Azure Container Apps
-        run: |
-          if az containerapp show --name "${{ env.ACA_APP }}" --resource-group "${{ env.RG }}" >/dev/null 2>&1; then
-            az containerapp update --name "${{ env.ACA_APP }}" --resource-group "${{ env.RG }}" \
-              --image "${{ env.REGISTRY }}/vantage:latest"
-          else
-            az containerapp create --name "${{ env.ACA_APP }}" --resource-group "${{ env.RG }}" \
-              --environment "${{ env.ACA_ENV }}" --image "${{ env.REGISTRY }}/vantage:latest" \
-              --target-port 8080 --ingress external --registry-server "${{ env.REGISTRY }}" \
-              --cpu 0.5 --memory 1.0Gi --min-replicas 1 --max-replicas 3
-          fi
-
-      - name: Verify deployment
-        run: |
-          for i in $(seq 1 60); do
-            if curl -sf https://${{ env.ACA_APP }}.${{ env.ACA_ENV }}.${{ env.LOCATION }}.azurecontainerapps.io/api/health >/dev/null 2>&1; then break; fi
-            sleep 2
-          done
-          curl -sf https://${{ env.ACA_APP }}.${{ env.ACA_ENV }}.${{ env.LOCATION }}.azurecontainerapps.io/api/health
-          echo "LIVE AT https://${{ env.ACA_APP }}.${{ env.ACA_ENV }}.${{ env.LOCATION }}.azurecontainerapps.io"
+          mkdir -p /tmp/vdep && tar -czf /tmp/vantage.tgz --exclude=.git --exclude=data --exclude=node_modules --exclude=stock-videos --exclude=.agg-data -C "${{ github.workspace }}" .
+          printf '%s' "$VM_KEY" > /tmp/vm_key.pem && chmod 600 /tmp/vm_key.pem
+          scp -i /tmp/vm_key.pem -o StrictHostKeyChecking=accept-new /tmp/vantage.tgz azureuser@$VM_HOST:/tmp/vantage.tgz
+          ssh -i /tmp/vm_key.pem -o StrictHostKeyChecking=accept-new azureuser@$VM_HOST \
+            "sudo tar -xzf /tmp/vantage.tgz -C /home/azureuser/vantage && sudo chown -R azureuser:azureuser /home/azureuser/vantage && sudo cp /home/azureuser/vantage/deploy/vantage.service /etc/systemd/system/vantage.service && sudo systemctl daemon-reload && sudo systemctl restart vantage && sleep 4 && sudo systemctl is-active vantage && curl -sf http://127.0.0.1/api/health"
+          curl -sf "http://$VM_HOST/api/health"
+          echo "LIVE AT http://$VM_HOST"

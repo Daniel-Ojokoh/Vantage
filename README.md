@@ -29,7 +29,7 @@ Node >= 22.5 required (node:sqlite). Seed generates thumbs with ffmpeg when avai
 - Keyboard on watch: Space play/pause, ←/→ seek ±5s, Esc back to feed
 - Data: `data/vantage.db` (SQLite WAL), uploads and ffmpeg thumbs under `data/`
 
-## Deploy with Docker / Azure Container Apps
+## Docker (local / CI)
 ```bash
 # build & run locally
 docker build -t vantage:ci .
@@ -37,39 +37,25 @@ docker run -d --name vtest -p 8181:8080 -e AUTO_SEED=1 vantage:ci   # auto-seeds
 docker exec vtest node smoke.js                                       # 51/51 API checks inside the container
 ```
 
-Pushing to Azure is handled by `.github/workflows/ci.yml` — every push runs the full suite (build → run → `smoke.js` → Playwright suite vs the container); pushes to `main` additionally deploy to Azure Container Apps via ACR. Required GitHub secrets/vars:
+## CI/CD
+`.github/workflows/ci.yml` runs on every push: build image → run container → `smoke.js` (51 checks) → Playwright suite (74 checks) vs the container.
+
+Pushes to `main` **also deploy to the Azure VM** (SSH, no cloud APIs needed). Required GitHub settings:
 
 | type | name | value |
 |---|---|---|
-| secret | `AZURE_CREDENTIALS` | service principal JSON (`az ad sp create-for-rbac --name vantage-cicd --role owner --scopes /subscriptions/<sub>`) |
-| var | `REGISTRY` | e.g. `vantageci.azurecr.io` |
-| var | `REGISTRY_NAME` | registry login server for the app image |
-| var | `AZURE_RESOURCE_GROUP` | e.g. `vantage-rg` |
-| var | `CONTAINER_APP_ENV` | environment name, e.g. `vantage-env` |
-| var | `CONTAINER_APP` | app name, e.g. `vantage-app` |
-| var | `AZURE_LOCATION` (optional) | default `westeurope` |
+| var | `VM_DEPLOY` | `1` (gate — deploy job only runs when set) |
+| secret | `VM_HOST` | VM IP or hostname, e.g. `158.158.0.87` |
+| secret | `VM_KEY` | full contents of the VM SSH private key (`Get-Content key.pem -Raw`) |
 
-Deployed data lives in the container's writable layer — ephemeral and auto-seeded at first boot. For durability, attach Azure Files (`az containerapp volume add` / `-v` with `--secret-volume-mount`) and map `data/`.
+The deploy job uploads the repo (minus `.git`/`data`/`node_modules`/`stock-videos`), reinstalls the systemd unit, restarts `vantage.service` and verifies `http://<VM_HOST>/api/health`. Live data in `data/` is preserved.
 
-Manual deploy (same steps the workflow runs):
-```powershell
-az login
-az group create -n $env:AZURE_RESOURCE_GROUP -l westeurope
-az acr create -g $env:AZURE_RESOURCE_GROUP -n $env:REGISTRY_NAME --sku Basic
-az acr login -n $env:REGISTRY_NAME
-docker tag vantage:ci $env:REGISTRY/vantage:latest; az acr import -n $env:REGISTRY_NAME --source $env:REGISTRY/vantage:latest
-az containerapp env create -g $env:AZURE_RESOURCE_GROUP -n $env:CONTAINER_APP_ENV -l westeurope
-az containerapp create -g $env:AZURE_RESOURCE_GROUP -n $env:CONTAINER_APP --environment $env:CONTAINER_APP_ENV `
-  --image $env:REGISTRY/vantage:latest --ingress external --target-port 8080 --cpu 0.5 --memory 1Gi --min-replicas 1 --max-replicas 3
-```
-Verify: `az containerapp show ... --query properties.configuration.ingress.fqdn` → open `https://<fqdn>/`.
-
-## Deploy to a VM (legacy, superseded by Docker/ACA)
+## Deploy to a VM (manual, what CI automates)
 ```powershell
 cd D:\vantage\deploy
-.\deploy.ps1 -Host <IP> -Key <path\to\key.pem>
+.\deploy.ps1 -HostName <IP> -Key <path\to\key.pem>
 ```
-Installs `/etc/systemd/system/vantage.service` (User=azureuser, WorkingDirectory=/home/azureuser/vantage, port 8080, auto-restart). Requires Node >= 22.5 on the VM (the script verifies node:sqlite first). Files land in `/home/azureuser/vantage/`, stock clips in `/home/azureuser/stock-videos/`.
+Installs `/etc/systemd/system/vantage.service` (User=azureuser, WorkingDirectory=/home/azureuser/vantage, port 80 with `CAP_NET_BIND_SERVICE`, auto-restart). Requires Node >= 22.5 on the VM (the script verifies node:sqlite first). Files land in `/home/azureuser/vantage/`, stock clips in `/home/azureuser/stock-videos/`. The first boot auto-seeds canonical users (`admin/admin123`, `creator1/creator123`, `viewer1/viewer123`) and the stock clips; seed is idempotent and enforces the canonical account set on every start.
 
 ## API surface
 - `GET /api/videos?q=&genre=&sort=latest|popular|rating&limit=` (+ `myRating` when authed)
